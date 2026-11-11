@@ -150,28 +150,33 @@ export default function Sidebar({
 
         {/* Actions */}
         <div className="flex items-center gap-1">
+          {/* Chat Baru / Tambah User berdasarkan Username */}
           <button
             onClick={onNewChat}
-            title="Pesan Baru"
+            title="Tambah Kontak / Chat Baru"
             className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-              <line x1="12" y1="8" x2="12" y2="14"/>
-              <line x1="9" y1="11" x2="15" y2="11"/>
-            </svg>
-          </button>
-
-          <button
-            onClick={onNewGroup}
-            title="Grup Baru"
-            className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Tambah Kontak / Chat Baru"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
               <circle cx="9" cy="7" r="4"/>
               <line x1="19" y1="8" x2="19" y2="14"/>
               <line x1="22" y1="11" x2="16" y2="11"/>
+            </svg>
+          </button>
+
+          {/* Buat Grup Baru (Ikon Grup / Kumpulan Anggota) */}
+          <button
+            onClick={onNewGroup}
+            title="Buat Grup Baru"
+            className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Buat Grup Baru"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
             </svg>
           </button>
 

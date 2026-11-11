@@ -41,12 +41,12 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Brand */}
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2 mb-3">
+          <div className="inline-flex items-center gap-2 mb-3 select-none">
             <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-indigo-500/20">
               ✦
             </div>
             <span className="font-semibold text-xl tracking-tight text-slate-900 dark:text-white">Pulse</span>
-          </Link>
+          </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             Selamat datang kembali
           </h1>
