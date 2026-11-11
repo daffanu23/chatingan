@@ -25,6 +25,12 @@ export type ConversationMember = {
   joined_at: string
 }
 
+export type MessageReply = {
+  id: string
+  sender: string
+  snippet: string
+}
+
 export type Message = {
   id: string
   conversation_id: string
