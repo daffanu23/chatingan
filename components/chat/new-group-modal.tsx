@@ -4,6 +4,23 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Profile } from '@/lib/types'
 
+const AVATAR_GRADIENTS = [
+  'from-indigo-500 to-purple-600',
+  'from-blue-500 to-cyan-500',
+  'from-emerald-500 to-teal-600',
+  'from-rose-500 to-pink-600',
+  'from-amber-500 to-orange-600',
+  'from-violet-600 to-indigo-600',
+]
+
+function getGradient(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length]
+}
+
 export default function NewGroupModal({
   currentUser,
   onClose,
@@ -53,7 +70,6 @@ export default function NewGroupModal({
 
     setCreating(true)
 
-    // Create group conversation
     const { data: newConv, error: convError } = await supabase
       .from('conversations')
       .insert({
@@ -70,7 +86,6 @@ export default function NewGroupModal({
       return
     }
 
-    // Add members
     const members = [
       { conversation_id: newConv.id, user_id: currentUser.id, role: 'admin' as const },
       ...selectedUsers.map((u) => ({
@@ -94,17 +109,17 @@ export default function NewGroupModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" onClick={onClose}>
       <div
-        className="w-full max-w-md bg-white dark:bg-[#111b21] rounded-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-800"
+        className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 bg-[#008069] dark:bg-[#202c33] text-white">
-          <h2 className="text-lg font-semibold">Buat Grup Baru</h2>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Buat Grup Baru</h2>
           <button
             onClick={onClose}
-            className="p-1 rounded-full hover:bg-black/10 transition-colors"
+            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
             ✕
           </button>
@@ -113,30 +128,30 @@ export default function NewGroupModal({
         <div className="p-4 space-y-3">
           {/* Group Name Field */}
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-[#667781] dark:text-[#8696a0] mb-1.5">
-              Subjek Grup
+            <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
+              Nama Grup
             </label>
             <input
               type="text"
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
-              placeholder="Ketik nama grup..."
-              className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#202c33] px-3.5 py-2.5 text-sm text-[#111b21] dark:text-[#e9edef] placeholder-[#667781] focus:border-[#00a884] focus:outline-none"
+              placeholder="Contoh: Tim Kerja / Teman Santai..."
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 px-3.5 py-2 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:bg-white dark:focus:bg-slate-900 focus:border-indigo-500 focus:outline-none"
             />
           </div>
 
-          {/* Selected Badges */}
+          {/* Selected Chips */}
           {selectedUsers.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pt-1">
+            <div className="flex flex-wrap gap-1.5">
               {selectedUsers.map((user) => (
                 <span
                   key={user.id}
-                  className="inline-flex items-center gap-1 rounded-full bg-[#e7fce3] dark:bg-[#005c4b]/50 px-3 py-1 text-xs font-medium text-[#008069] dark:text-[#25d366]"
+                  className="inline-flex items-center gap-1 rounded-full bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/60 dark:border-indigo-800/40 px-2.5 py-0.5 text-[11px] font-medium text-indigo-700 dark:text-indigo-300"
                 >
                   {user.username}
                   <button
                     onClick={() => toggleUser(user)}
-                    className="hover:text-red-500 font-bold ml-1"
+                    className="hover:text-rose-500 ml-0.5"
                   >
                     ×
                   </button>
@@ -146,21 +161,21 @@ export default function NewGroupModal({
           )}
 
           {/* Search Users Input */}
-          <div className="pt-1">
+          <div>
             <input
               type="text"
               value={search}
               onChange={(e) => handleSearch(e.target.value)}
               placeholder="Cari anggota untuk ditambahkan..."
-              className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#202c33] px-3.5 py-2 text-sm text-[#111b21] dark:text-[#e9edef] placeholder-[#667781] focus:border-[#00a884] focus:outline-none"
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 px-3.5 py-2 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:bg-white dark:focus:bg-slate-900 focus:border-indigo-500 focus:outline-none"
             />
           </div>
         </div>
 
         {/* Results */}
-        <div className="max-h-48 overflow-y-auto px-2 divide-y divide-[#f0f2f5] dark:divide-[#202c33]">
+        <div className="max-h-48 overflow-y-auto px-2 space-y-0.5">
           {loading ? (
-            <p className="text-center text-xs text-[#8696a0] py-4">Mencari...</p>
+            <p className="text-center text-xs text-slate-400 py-4">Mencari...</p>
           ) : results.length > 0 ? (
             results.map((user) => {
               const isSelected = selectedUsers.some((u) => u.id === user.id)
@@ -168,35 +183,35 @@ export default function NewGroupModal({
                 <button
                   key={user.id}
                   onClick={() => toggleUser(user)}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] transition-colors ${
-                    isSelected ? 'bg-[#e7fce3]/60 dark:bg-[#005c4b]/30' : ''
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-colors ${
+                    isSelected ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200' : 'hover:bg-slate-100/70 dark:hover:bg-slate-800/60 text-slate-900 dark:text-white'
                   }`}
                 >
-                  <div className="h-9 w-9 rounded-full bg-[#54656f] flex items-center justify-center text-white text-xs font-semibold shrink-0">
+                  <div className={`h-8 w-8 rounded-xl bg-gradient-to-tr ${getGradient(user.username)} flex items-center justify-center text-white text-[11px] font-semibold shrink-0`}>
                     {user.username.charAt(0).toUpperCase()}
                   </div>
-                  <p className="text-sm font-medium text-[#111b21] dark:text-[#e9edef] flex-1 text-left truncate">
+                  <span className="text-xs font-medium flex-1 truncate">
                     {user.username}
-                  </p>
+                  </span>
                   {isSelected ? (
-                    <span className="text-[#00a884] font-bold text-sm">✓ Terpilih</span>
+                    <span className="text-indigo-600 dark:text-indigo-400 font-bold text-xs">✓</span>
                   ) : (
-                    <span className="text-xs text-gray-400">+ Tambah</span>
+                    <span className="text-[10px] text-slate-400">+ Tambah</span>
                   )}
                 </button>
               )
             })
           ) : search.length >= 2 ? (
-            <p className="text-center text-xs text-[#8696a0] py-4">Pengguna tidak ditemukan</p>
+            <p className="text-center text-xs text-slate-400 py-4">Pengguna tidak ditemukan</p>
           ) : null}
         </div>
 
-        {/* Footer Button */}
-        <div className="p-4 bg-[#f0f2f5] dark:bg-[#202c33] border-t border-[#e9edef] dark:border-[#222d34]">
+        {/* Submit */}
+        <div className="p-4 border-t border-slate-100 dark:border-slate-800">
           <button
             onClick={handleCreateGroup}
             disabled={!groupName.trim() || selectedUsers.length === 0 || creating}
-            className="w-full rounded-xl bg-[#00a884] hover:bg-[#008f6f] px-4 py-2.5 text-sm font-semibold text-white shadow hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            className="w-full rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs sm:text-sm py-2.5 shadow-md shadow-indigo-600/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             {creating
               ? 'Membuat Grup...'

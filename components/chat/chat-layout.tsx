@@ -60,9 +60,9 @@ export default function ChatLayout({
   useEffect(() => {
     const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0)
     if (totalUnread > 0) {
-      document.title = `(${totalUnread}) WhatsApp Web`
+      document.title = `(${totalUnread}) Pulse — Obrolan Baru`
     } else {
-      document.title = 'WhatsApp Web'
+      document.title = 'Pulse — Modern Chat'
     }
   }, [unreadCounts])
 
@@ -120,10 +120,8 @@ export default function ChatLayout({
 
           // Handle Notifications if message is from someone else
           if (newMessage.sender_id !== currentUser.id) {
-            // 1. Play incoming message chime
             playNotificationSound()
 
-            // 2. Find sender name
             const conv = conversationsRef.current.find(
               (c) => c.id === newMessage.conversation_id
             )
@@ -147,16 +145,13 @@ export default function ChatLayout({
                 ? '📷 Mengirim sebuah foto'
                 : newMessage.content || 'Pesan baru'
 
-            // 3. Show in-app green toast popup banner
             setToast({ sender: senderName, text: messageText })
             setTimeout(() => setToast(null), 5000)
 
-            // 4. Show desktop popup notification
             showDesktopNotification(senderName, {
               body: messageText,
             })
 
-            // 5. Increment unread count if user is not currently looking at this conversation
             if (selectedConvRef.current !== newMessage.conversation_id) {
               setUnreadCounts((prev) => ({
                 ...prev,
@@ -245,7 +240,6 @@ export default function ChatLayout({
     setSelectedConversation(id)
     setMobileShowChat(true)
 
-    // Clear unread count for this conversation
     setUnreadCounts((prev) => {
       if (!prev[id]) return prev
       const next = { ...prev }
@@ -255,38 +249,36 @@ export default function ChatLayout({
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#f0f2f5] dark:bg-[#0c1317] relative">
-      {/* In-app Toast Notification Banner */}
+    <div className="flex h-[100dvh] w-screen overflow-hidden bg-slate-50 dark:bg-slate-950 relative">
+      {/* Aesthetic Toast Notification Banner */}
       {toast && (
         <div
-          className="wa-toast cursor-pointer hover:opacity-95 transition-opacity"
-          onClick={() => {
-            setToast(null)
-          }}
+          className="modern-toast cursor-pointer hover:opacity-90 transition-opacity"
+          onClick={() => setToast(null)}
         >
-          <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center text-base shrink-0">
-            💬
+          <div className="h-7 w-7 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-xs font-bold shrink-0">
+            ✦
           </div>
-          <div className="min-w-0 pr-2">
-            <p className="text-xs font-bold leading-tight truncate">{toast.sender}</p>
-            <p className="text-[11px] text-white/90 truncate max-w-[240px] mt-0.5">{toast.text}</p>
+          <div className="min-w-0 pr-1">
+            <p className="text-xs font-semibold leading-tight truncate">{toast.sender}</p>
+            <p className="text-[11px] text-slate-300 truncate max-w-[220px] mt-0.5">{toast.text}</p>
           </div>
           <button
             onClick={(e) => {
               e.stopPropagation()
               setToast(null)
             }}
-            className="text-white/70 hover:text-white text-xs ml-1"
+            className="text-slate-400 hover:text-white text-xs ml-1"
           >
             ✕
           </button>
         </div>
       )}
 
-      {/* Container simulating WA Web wrapper on desktop */}
-      <div className="flex w-full h-full md:max-w-[1700px] md:mx-auto md:my-0 bg-white dark:bg-[#111b21] shadow-2xl overflow-hidden">
-        {/* Sidebar */}
-        <div className={`${mobileShowChat ? 'hidden' : 'flex'} md:flex w-full md:w-[380px] lg:w-[420px] flex-col shrink-0`}>
+      {/* Main Container */}
+      <div className="flex w-full h-full overflow-hidden">
+        {/* Sidebar: Full screen on mobile when no chat is open, fixed width on desktop */}
+        <div className={`${mobileShowChat ? 'hidden' : 'flex'} md:flex w-full md:w-[340px] lg:w-[380px] flex-col shrink-0 h-full`}>
           <Sidebar
             currentUser={currentUser}
             conversations={conversations}
@@ -298,8 +290,8 @@ export default function ChatLayout({
           />
         </div>
 
-        {/* Chat Area */}
-        <div className={`${!mobileShowChat ? 'hidden' : 'flex'} md:flex flex-1 flex-col h-full overflow-hidden`}>
+        {/* Chat Area: Full screen on mobile when chat is selected, flex-1 on desktop */}
+        <div className={`${!mobileShowChat ? 'hidden' : 'flex'} md:flex flex-1 flex-col h-full overflow-hidden bg-white dark:bg-slate-900`}>
           {selectedConv ? (
             <ChatArea
               conversation={selectedConv}
@@ -307,26 +299,26 @@ export default function ChatLayout({
               onBack={() => setMobileShowChat(false)}
             />
           ) : (
-            /* WhatsApp Web Default Empty State */
-            <div className="flex flex-1 flex-col items-center justify-center bg-[#f0f2f5] dark:bg-[#222e35] p-8 text-center border-b-[6px] border-[#00a884]">
-              <div className="max-w-md space-y-4">
-                <div className="w-48 h-48 mx-auto opacity-75 flex items-center justify-center rounded-full bg-[#e9edef] dark:bg-[#182229] text-7xl shadow-inner">
+            /* Modern Aesthetic Empty State */
+            <div className="flex flex-1 flex-col items-center justify-center p-8 text-center bg-slate-50/50 dark:bg-slate-950">
+              <div className="max-w-sm space-y-4 flex flex-col items-center">
+                <div className="h-16 w-16 rounded-3xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400 text-2xl shadow-sm">
                   💬
                 </div>
-                <h1 className="text-3xl font-light text-[#41525d] dark:text-[#e9edef]">
-                  WhatsApp Web
-                </h1>
-                <p className="text-sm text-[#667781] dark:text-[#8696a0] leading-relaxed">
-                  Kirim dan terima pesan tanpa perlu menjaga ponsel Anda tetap online.
-                  Gunakan WhatsApp di berbagai perangkat Anda sekaligus.
-                </p>
-                <div className="pt-8 flex items-center justify-center gap-2 text-xs text-[#8696a0]">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                  </svg>
-                  <span>Terenkripsi secara end-to-end</span>
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                    Pilih Obrolan
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    Pilih salah satu percakapan di sebelah kiri atau mulai obrolan baru dengan teman.
+                  </p>
                 </div>
+                <button
+                  onClick={() => setShowNewChat(true)}
+                  className="px-4 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-medium text-xs hover:opacity-90 transition-opacity"
+                >
+                  Mulai Chat Baru
+                </button>
               </div>
             </div>
           )}
