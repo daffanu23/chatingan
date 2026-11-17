@@ -12,10 +12,13 @@
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.119.0",
     "@tailwindcss/postcss": "^4.3.5",
+    "dexie": "^4.4.7",
+    "dexie-react-hooks": "^4.4.0",
     "heic2any": "^0.0.4",
     "next": "16.4.6",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "ulid": "^3.0.2"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",

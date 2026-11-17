@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { ulid } from 'ulid'
+import { localDb, upsertLocalConversation } from '@/lib/db/schema'
 import type { Profile } from '@/lib/types'
 
 const AVATAR_GRADIENTS = [
@@ -34,157 +35,160 @@ export default function NewChatModal({
   const [results, setResults] = useState<Profile[]>([])
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
-  const supabase = createClient()
 
   async function handleSearch(query: string) {
     setSearch(query)
-    if (query.length < 2) {
+    if (query.trim().length < 2) {
       setResults([])
       return
     }
 
     setLoading(true)
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .neq('id', currentUser.id)
-      .ilike('username', `%${query}%`)
-      .limit(10)
-
-    setResults(data ?? [])
-    setLoading(false)
+    try {
+      const res = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`)
+      if (res.ok) {
+        const data = await res.json()
+        setResults(data.users || [])
+      }
+    } catch (err) {
+      console.error('[NewChat] Search failed:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  async function handleSelectUser(user: Profile) {
+  async function handleSelectUser(targetUser: Profile) {
     setCreating(true)
 
-    // Check if DM already exists
-    const { data: existingConvs } = await supabase
-      .from('conversation_members')
-      .select('conversation_id')
-      .eq('user_id', currentUser.id)
+    try {
+      // 1. Cek apakah room DM dengan user ini sudah ada di IndexedDB lokal
+      const existingConvs = await localDb.conversations.toArray()
+      const existingDm = existingConvs.find(
+        (c) =>
+          c.type === 'dm' &&
+          c.members.some((m) => m.user_id === targetUser.id) &&
+          c.members.some((m) => m.user_id === currentUser.id)
+      )
 
-    if (existingConvs) {
-      for (const conv of existingConvs) {
-        const { data: otherMembers } = await supabase
-          .from('conversation_members')
-          .select('conversation_id')
-          .eq('conversation_id', conv.conversation_id)
-          .eq('user_id', user.id)
-
-        if (otherMembers && otherMembers.length > 0) {
-          const { data: convData } = await supabase
-            .from('conversations')
-            .select('id, type')
-            .eq('id', conv.conversation_id)
-            .eq('type', 'dm')
-            .single()
-
-          if (convData) {
-            onCreated(convData.id)
-            return
-          }
-        }
+      if (existingDm) {
+        onCreated(existingDm.id)
+        return
       }
-    }
 
-    // Create new DM conversation
-    const { data: newConv, error: convError } = await supabase
-      .from('conversations')
-      .insert({
+      // 2. Buat ID percakapan deterministik atau unik untuk DM
+      const conversationId = `dm_${[currentUser.id, targetUser.id].sort().join('_')}`
+
+      // 3. Simpan langsung ke IndexedDB lokal
+      await upsertLocalConversation({
+        id: conversationId,
         type: 'dm',
+        name: targetUser.username,
+        avatar_url: targetUser.avatar_url,
         created_by: currentUser.id,
+        members: [
+          {
+            user_id: currentUser.id,
+            role: 'member',
+            username: currentUser.username,
+            avatar_url: currentUser.avatar_url,
+            is_online: true,
+          },
+          {
+            user_id: targetUser.id,
+            role: 'member',
+            username: targetUser.username,
+            avatar_url: targetUser.avatar_url,
+            is_online: targetUser.is_online,
+          },
+        ],
+        unread_count: 0,
+        updated_at: Date.now(),
+        created_at: new Date().toISOString(),
+        last_message: null,
       })
-      .select()
-      .single()
 
-    if (convError || !newConv) {
-      console.error('Failed to create conversation:', convError)
+      onCreated(conversationId)
+    } catch (err) {
+      console.error('[NewChat] Error creating local conversation:', err)
+    } finally {
       setCreating(false)
-      return
     }
-
-    // Add members
-    const { error: memberError } = await supabase
-      .from('conversation_members')
-      .insert([
-        { conversation_id: newConv.id, user_id: currentUser.id, role: 'admin' },
-        { conversation_id: newConv.id, user_id: user.id, role: 'member' },
-      ])
-
-    if (memberError) {
-      console.error('Failed to add members:', memberError)
-      setCreating(false)
-      return
-    }
-
-    onCreated(newConv.id)
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
-          <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Mulai Obrolan Baru</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+      <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-150">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Obrolan Baru</h3>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Cari username teman Anda (@username)
+            </p>
+          </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
           >
             ✕
           </button>
         </div>
 
-        {/* Search */}
-        <div className="p-4">
-          <div className="flex items-center gap-2 bg-slate-100/80 dark:bg-slate-800/60 rounded-xl px-3 py-2">
-            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400">
-              <circle cx="11" cy="11" r="8"/>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
+        {/* Search input */}
+        <div className="mt-4">
+          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800/60 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:bg-white dark:focus-within:bg-slate-800 transition-all">
+            <span className="text-slate-400 text-xs">@</span>
             <input
               type="text"
               value={search}
               onChange={(e) => handleSearch(e.target.value)}
-              placeholder="Cari username kontak..."
+              placeholder="Ketik username..."
               autoFocus
-              className="w-full bg-transparent text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none"
+              className="w-full bg-transparent text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none"
             />
           </div>
         </div>
 
         {/* Results */}
-        <div className="max-h-64 overflow-y-auto px-2 pb-4 space-y-1">
+        <div className="mt-4 max-h-60 overflow-y-auto space-y-1">
           {loading ? (
             <p className="text-center text-xs text-slate-400 py-6">Mencari...</p>
-          ) : results.length > 0 ? (
-            results.map((user) => (
-              <button
-                key={user.id}
-                onClick={() => handleSelectUser(user)}
-                disabled={creating}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-slate-100/80 dark:hover:bg-slate-800/60 disabled:opacity-50 transition-colors text-left"
-              >
-                <div className={`h-10 w-10 rounded-2xl bg-gradient-to-tr ${getGradient(user.username)} flex items-center justify-center text-white text-xs font-semibold shadow-xs shrink-0`}>
-                  {user.username.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">{user.username}</p>
-                  <p className="text-[10px] text-slate-400">
-                    {user.is_online ? '● Online' : 'Offline'}
-                  </p>
-                </div>
-              </button>
-            ))
-          ) : search.length >= 2 ? (
-            <p className="text-center text-xs text-slate-400 py-6">Pengguna tidak ditemukan</p>
-          ) : (
+          ) : results.length === 0 ? (
             <p className="text-center text-xs text-slate-400 py-6">
-              Ketik minimal 2 huruf untuk mencari
+              {search.length < 2
+                ? 'Ketik minimal 2 karakter untuk mencari teman'
+                : 'Pengguna tidak ditemukan'}
             </p>
+          ) : (
+            results.map((user) => {
+              const gradient = getGradient(user.username)
+              return (
+                <button
+                  key={user.id}
+                  disabled={creating}
+                  onClick={() => handleSelectUser(user)}
+                  className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors text-left"
+                >
+                  <div className="relative shrink-0">
+                    <div
+                      className={`h-9 w-9 rounded-xl bg-gradient-to-tr ${gradient} flex items-center justify-center text-white text-xs font-semibold shadow-xs`}
+                    >
+                      {user.username.charAt(0).toUpperCase()}
+                    </div>
+                    {user.is_online && (
+                      <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-slate-900 dark:text-white truncate">
+                      @{user.username}
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      {user.is_online ? 'Sedang online' : 'Offline'}
+                    </p>
+                  </div>
+                </button>
+              )
+            })
           )}
         </div>
       </div>

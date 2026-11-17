@@ -32,20 +32,21 @@ html, body {
   background: rgba(148, 163, 184, 0.5);
 }
 
-/* Modern unread badge */
+/* Modern unread badge (WhatsApp Emerald Green) */
 .chat-unread-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
   border-radius: 9999px;
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  background-color: #22c55e; /* Hijau WhatsApp */
   color: #ffffff;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
+  box-shadow: 0 2px 6px rgba(34, 197, 94, 0.45);
 }
 
 /* Modern toast notification */
