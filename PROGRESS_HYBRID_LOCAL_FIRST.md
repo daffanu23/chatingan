@@ -90,6 +90,19 @@ Aplikasi telah berhasil direfaktor dari arsitektur klasik (riwayat chat permanen
 4. **Verifikasi Build:**
    * Perintah `npm run build` berhasil dijalankan **100% sukses tanpa error**.
 
+### F. Local-First Media Storage (IndexedDB Blob Cache)
+* `lib/media/local-media.ts`:
+  * `cacheRemoteMediaToLocal(messageId, conversationId, remoteUrl)`: Mengunduh foto dari cloud storage sementara dan menyimpannya ke tabel `media_files` IndexedDB lokal.
+  * Hook `useLocalMediaUrl(messageId, remoteUrl)`: Memuat foto 100% dari Blob lokal perangkat (0ms latency, offline-ready), dengan fallback remote jika belum selesai terunduh.
+* `lib/db/schema.ts` (Upgrade Skema Versi 2):
+  * Menambahkan tabel `media_files` (`id`, `conversation_id`, `blob`, `mime_type`, `size`, `created_at`).
+  * Helper `saveLocalMedia`, `getLocalMedia`, dan `deleteLocalMedia`.
+* `components/chat/chat-area.tsx`:
+  * Subkomponen `LocalImageAttachment`: Merender foto dari memori lokal perangkat.
+  * Pada `uploadImageFile`: Foto yang dikompresi langsung disimpan ke IndexedDB lokal pengirim sebelum upload ke cloud.
+* `lib/db/backup.ts`:
+  * Menambahkan serialisasi Blob ➔ Base64 untuk pencadangan media foto dalam file `.json`. Foto-foto offline dapat dipindahkan dan dipulihkan antar gawai.
+
 ---
 
 ## 4. Status Integrasi & Debugging Langsung ke Supabase
@@ -112,15 +125,50 @@ Integrasi **Supabase MCP** telah berhasil terhubung langsung ke proyek **chat (`
 
 ---
 
-## 5. Rencana Langkah Saat Melanjutkan Nanti
+## 5. Fitur Quality of Life (QoL) yang Telah Ditambahkan
 
-1. **Menghubungkan Plugin Supabase (Opsional):**
-   * Lakukan *sign-in* pada plugin Supabase MCP jika ingin agen AI dapat menjalankan migrasi dan membaca log database secara otomatis tanpa manual buka dashboard.
-2. **Pengujian Pengalaman Pengguna (End-to-End Testing):**
+1. **Fitur Hapus Pesan (Delete Message Options):**
+   - **Hapus untuk Semua Orang (Delete for Everyone):** Khusus pesan milik sendiri yang belum terhapus. Mengirimkan event tombstone melalui `syncEngine.deleteMessage`, pesan diganti dengan label *"Pesan telah terhapus"* di semua perangkat lawan bicara dan perangkat sendiri.
+   - **Hapus untuk Saya Saja (Delete for Me):** Berlaku untuk pesan siapa pun. Menghapus pesan secara fisik dari IndexedDB perangkat ini saja melalui `deleteLocalMessageOnly` tanpa mempengaruhi perangkat lain.
+2. **Context Menu Aksi Pesan (3-Dots Popover):**
+   - Tombol opsi `•••` pada setiap bubble pesan:
+     - ↩️ **Balas Pesan:** Otomatis mengisi quote reply bar.
+     - 📋 **Salin Teks:** Menyalin isi pesan ke clipboard dengan toast notifikasi modern.
+     - 🗑️ **Hapus Pesan:** Membuka modal konfirmasi hapus pesan.
+3. **Pencarian Pesan dalam Obrolan (In-Chat Search):**
+   - Tombol 🔍 di header chat untuk membuka search bar interaktif.
+   - Pencarian teks pesan secara instan (case-insensitive).
+   - Indikator match counter (contoh: `1 dari 4` atau `0 hasil`).
+   - Tombol navigasi Previous (`▲`) dan Next (`▼`) yang otomatis scroll ke pesan terkait.
+   - Highlighting teks yang cocok dengan warna aksen kuning (`<mark>`).
+4. **Indikator Realtime Lawan Bicara Sedang Mengetik (Typing Indicator):**
+   - Broadcast status mengetik via Supabase Realtime channel (`typing:${conversationId}`) dengan debounce otomatis 2.5 detik.
+   - Animasi titik bergerak dan teks hijau di header (contoh: *"[username] sedang mengetik..."*).
+5. **Bersihkan Obrolan (Clear Chat):**
+   - Opsi pada menu dropdown header (`⋮`) untuk menghapus seluruh pesan dan media foto lokal dalam percakapan tertentu via `clearLocalConversationMessages`.
+6. **Toast Notifikasi Ringan:**
+   - Feedback animasi mengambang saat teks disalin, pesan dihapus, atau chat dibersihkan.
+7. **Stiker Custom Local-First (Custom Stickers & Favorites):**
+   - **Tabel `custom_stickers` di IndexedDB (Skema Versi 3):** Menyimpan file binary stiker (Blob), metadata, dan status bintang favorit secara persisten di perangkat.
+   - **Tombol Stiker (`🎨`):** Terletak di sebelah tombol emoji pada kolom input pesan untuk membuka baki stiker (*Sticker Picker*).
+   - **Tombol Tambah Stiker (`➕ Tambah`):** Pengguna dapat mengunggah gambar/foto apa pun (PNG, WebP, GIF, SVG, JPG) dari galeri lokal perangkat untuk dijadikan stiker custom.
+   - **Tab & Fitur Favorit (`⭐`):**
+     - Tab **⭐ Favorit** untuk akses cepat stiker kesukaan.
+     - Setiap stiker memiliki tombol bintang (`★`) untuk memasukkan atau mengeluarkan stiker dari daftar favorit.
+     - Penerima stiker di obrolan dapat langsung mengklik menu `•••` pada stiker lalu memilih **"Simpan ke Favorit"** agar stiker lawan bicara masuk ke koleksi lokalnya.
+   - **Render Stiker Tanpa Bubble (*Floating Transparent*):** Stiker ditampilkan tanpa border/background bubble pesan (mirip WhatsApp & Telegram) lengkap dengan timestamp dan status monotonic.
+   - **Pencadangan Stiker:** Seluruh koleksi stiker custom otomatis ikut diekspor dan diimpor saat melakukan backup riwayat chat.
+
+---
+
+## 6. Rencana Langkah Saat Melanjutkan Nanti
+
+1. **Pengujian Pengalaman Pengguna (End-to-End Testing):**
    * Jalankan `npm run dev`.
    * Buka dua browser/tab berbeda untuk menguji:
      * Pengiriman pesan instan (🕒 ➔ ✓ ➔ ✓✓ abu ➔ ✓✓ biru).
-     * Self-sync multi-device (1 akun di 2 browser berbeda).
-     * Pesan offline (matikan browser penerima, kirim pesan, nyalakan kembali penerima).
-     * Hapus pesan (tombstone pattern).
+     * Indikator sedang mengetik (realtime typing dots).
+     * Pencarian pesan dalam chat (in-chat search).
+     * Menu aksi pesan (Copy text, Reply, Delete for everyone vs Delete for me).
+     * Bersihkan riwayat chat (Clear chat).
      * Ekspor dan impor file cadangan `.json`.

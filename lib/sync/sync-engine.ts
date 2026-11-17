@@ -8,6 +8,7 @@ import {
   upsertLocalConversation,
   initPersistedStorage,
 } from '@/lib/db/schema'
+import { cacheRemoteMediaToLocal } from '@/lib/media/local-media'
 import { getClientDeviceInfo, registerDeviceOnServer } from '@/lib/device/client-device'
 import type {
   LocalConversation,
@@ -190,6 +191,11 @@ export class SyncEngine {
 
         await saveLocalMessage(localMsg)
 
+        // Jika pesan bertipe gambar, otomatis unduh dan simpan file fisik Blob ke IndexedDB lokal
+        if (localMsg.type === 'image' && localMsg.image_url) {
+          cacheRemoteMediaToLocal(msgId, convId, localMsg.image_url)
+        }
+
         // 3. Jika pesan dari orang lain
         if (!isFromMe) {
           // Kirim status DELIVERED kembali ke pengirim
@@ -208,7 +214,11 @@ export class SyncEngine {
             const senderMember = conv?.members.find((m) => m.user_id === sender_id)
             const senderName = senderMember?.username || 'Pesan Baru'
             const textPreview =
-              payload.type === 'image' ? '📷 Foto' : payload.content || 'Pesan baru'
+              payload.type === 'image'
+                ? '📷 Foto'
+                : payload.type === 'sticker'
+                ? '🎨 Stiker'
+                : payload.content || 'Pesan baru'
 
             showDesktopNotification(senderName, { body: textPreview })
             if (this.onNotificationCallback) {
@@ -344,17 +354,19 @@ export class SyncEngine {
     imageUrl = null,
     recipientUserIds,
     conversationMeta,
+    customMessageId,
   }: {
     conversationId: string
     content: string | null
-    type?: 'text' | 'image'
+    type?: 'text' | 'image' | 'sticker'
     imageUrl?: string | null
     recipientUserIds: string[]
     conversationMeta?: any
+    customMessageId?: string
   }): Promise<LocalMessage> {
     if (!this.userId) throw new Error('SyncEngine not initialized with user')
 
-    const messageId = ulid()
+    const messageId = customMessageId || ulid()
     const now = Date.now()
 
     // 1. Simpan langsung ke IndexedDB lokal dengan status 0: PENDING
@@ -508,6 +520,61 @@ export class SyncEngine {
     } catch (err) {
       console.warn('[SyncEngine] Failed to send delete event:', err)
     }
+  }
+
+  private activeTypingChannel: any = null
+
+  /**
+   * Subscribe Realtime WebSocket untuk status lawan bicara sedang mengetik
+   */
+  public subscribeToTyping(
+    conversationId: string,
+    onTypingChange: (isTyping: boolean, username: string) => void
+  ) {
+    if (this.activeTypingChannel) {
+      this.supabase.removeChannel(this.activeTypingChannel)
+    }
+
+    const channelName = `typing:${conversationId}`
+    this.activeTypingChannel = this.supabase
+      .channel(channelName)
+      .on('broadcast', { event: 'typing' }, (payload: any) => {
+        const data = payload?.payload
+        if (data && data.user_id !== this.userId) {
+          onTypingChange(Boolean(data.is_typing), data.username || 'Seseorang')
+        }
+      })
+      .subscribe()
+  }
+
+  public unsubscribeFromTyping() {
+    if (this.activeTypingChannel) {
+      this.supabase.removeChannel(this.activeTypingChannel)
+      this.activeTypingChannel = null
+    }
+  }
+
+  /**
+   * Mengirim broadcast realtime saat pengguna mulai/berhenti mengetik
+   */
+  public async sendTypingStatus(
+    conversationId: string,
+    isTyping: boolean,
+    username: string
+  ) {
+    if (!this.activeTypingChannel || !this.userId) return
+
+    try {
+      await this.activeTypingChannel.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: {
+          user_id: this.userId,
+          username,
+          is_typing: isTyping,
+        },
+      })
+    } catch (_) {}
   }
 }
 

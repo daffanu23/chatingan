@@ -51,7 +51,7 @@ export function BackupModal({ onClose }: { onClose: () => void }) {
       const text = await file.text()
       const res = await importLocalChatData(text)
       setMessage(
-        `Sukses! Berhasil memulihkan ${res.importedConvs} percakapan dan ${res.importedMsgs} pesan ke perangkat ini.`
+        `Sukses! Berhasil memulihkan ${res.importedConvs} percakapan, ${res.importedMsgs} pesan, dan ${res.importedMedia || 0} foto ke perangkat ini.`
       )
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'File cadangan tidak valid.'

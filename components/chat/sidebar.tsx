@@ -343,6 +343,10 @@ export default function Sidebar({
                           <span className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400">
                             📷 Foto
                           </span>
+                        ) : conv.last_message.type === 'sticker' ? (
+                          <span className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400">
+                            🎨 Stiker
+                          </span>
                         ) : (
                           conv.last_message.content
                         )

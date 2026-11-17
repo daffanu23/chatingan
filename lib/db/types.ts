@@ -17,7 +17,7 @@ export type LocalMessage = {
   sender_id: string
   sender_device_id: string
   content: string | null
-  type: 'text' | 'image'
+  type: 'text' | 'image' | 'sticker'
   image_url: string | null
   status: MessageStatus
   is_deleted: boolean // Tombstone marker
@@ -45,7 +45,7 @@ export type LocalConversation = {
   last_message?: {
     id: string
     content: string | null
-    type: 'text' | 'image'
+    type: 'text' | 'image' | 'sticker'
     sender_id: string
     status: MessageStatus
     server_ts: number
@@ -68,6 +68,26 @@ export type LocalDeviceMeta = {
   value: string
 }
 
+export type LocalMediaFile = {
+  id: string // message_id
+  conversation_id: string
+  blob: Blob
+  mime_type: string
+  size: number
+  created_at: number
+}
+
+export type LocalSticker = {
+  id: string // ULID
+  name: string
+  blob: Blob
+  mime_type: string
+  size: number
+  is_favorite: boolean
+  pack_name?: string
+  created_at: number
+}
+
 export type SyncEventType = 'message:new' | 'message:status' | 'message:delete'
 
 export type SyncEventPayload = {
@@ -76,7 +96,7 @@ export type SyncEventPayload = {
   sender_id: string
   sender_device_id: string
   content?: string | null
-  type?: 'text' | 'image'
+  type?: 'text' | 'image' | 'sticker'
   image_url?: string | null
   status?: MessageStatus
   server_ts: number
