@@ -53,7 +53,7 @@ function StickerItem({
       />
 
       {/* Action overlay buttons: Favorite Star & Delete */}
-      <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+      <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity z-10">
         <button
           type="button"
           onClick={(e) => onToggleFavorite(sticker.id, e)}

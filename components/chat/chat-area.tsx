@@ -433,7 +433,7 @@ function MessageBubbleItem({
 
       {/* Action buttons (Reply, Menu Popover, Delete) */}
       <div
-        className={`relative flex items-center gap-1 opacity-0 group-hover:opacity-100 sm:opacity-0 focus-within:opacity-100 transition-opacity ${
+        className={`relative flex items-center gap-1 opacity-70 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity ${
           isMe ? 'order-1 pr-1' : 'order-2 pl-1'
         }`}
         ref={menuRef}

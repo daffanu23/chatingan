@@ -55,6 +55,8 @@ export type LocalConversation = {
   unread_count: number
   updated_at: number // server_ts or local_ts
   created_at: string
+  is_pinned?: boolean
+  is_archived?: boolean
 }
 
 export type LocalTombstone = {

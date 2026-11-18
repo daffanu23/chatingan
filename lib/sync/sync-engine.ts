@@ -28,6 +28,8 @@ export class SyncEngine {
   private isPulling = false
   private onNotificationCallback?: (sender: string, text: string) => void
   private activeConversationId: string | null = null
+  private syncStateListeners: Set<(isSyncing: boolean) => void> = new Set()
+  private isSyncingState: boolean = false
 
   private constructor() {
     if (typeof window !== 'undefined') {
@@ -51,6 +53,23 @@ export class SyncEngine {
     this.onNotificationCallback = cb
   }
 
+  public onSyncStateChange(listener: (isSyncing: boolean) => void): () => void {
+    this.syncStateListeners.add(listener)
+    listener(this.isSyncingState)
+    return () => {
+      this.syncStateListeners.delete(listener)
+    }
+  }
+
+  private setSyncing(syncing: boolean) {
+    this.isSyncingState = syncing
+    for (const listener of this.syncStateListeners) {
+      try {
+        listener(syncing)
+      } catch (_) {}
+    }
+  }
+
   /**
    * Inisialisasi Sync Engine:
    * 1. Request navigator.storage.persist()
@@ -63,14 +82,19 @@ export class SyncEngine {
     this.deviceId = getClientDeviceInfo(userId).deviceId
     await initPersistedStorage()
 
-    // 1. Daftarkan perangkat aktif
-    await registerDeviceOnServer(userId)
+    this.setSyncing(true)
+    try {
+      // 1. Daftarkan perangkat aktif
+      await registerDeviceOnServer(userId)
 
-    // 2. Setup Realtime WebSocket Channel
-    this.setupRealtimeSubscription(userId)
+      // 2. Setup Realtime WebSocket Channel
+      this.setupRealtimeSubscription(userId)
 
-    // 3. Tarik antrean pesan tertunda yang tersimpan di server
-    await this.drainPendingQueue()
+      // 3. Tarik antrean pesan tertunda yang tersimpan di server
+      await this.drainPendingQueue()
+    } finally {
+      this.setSyncing(false)
+    }
 
     // 4. Setup periodic heartbeat & online listener
     if (typeof window !== 'undefined') {
@@ -266,11 +290,11 @@ export class SyncEngine {
   public async drainPendingQueue(): Promise<void> {
     if (this.isPulling || !this.deviceId) return
     this.isPulling = true
+    this.setSyncing(true)
 
     try {
       const res = await fetch(`/api/sync/pull?deviceId=${encodeURIComponent(this.deviceId)}`)
       if (!res.ok) {
-        this.isPulling = false
         return
       }
 
@@ -278,7 +302,6 @@ export class SyncEngine {
       const events: any[] = data.events || []
 
       if (events.length === 0) {
-        this.isPulling = false
         return
       }
 
@@ -308,6 +331,7 @@ export class SyncEngine {
       console.error('[SyncEngine] Error draining queue:', err)
     } finally {
       this.isPulling = false
+      this.setSyncing(false)
     }
   }
 

@@ -21,6 +21,10 @@ export default function ChatLayout({
   const [showNewGroup, setShowNewGroup] = useState(false)
   const [mobileShowChat, setMobileShowChat] = useState(false)
 
+  // Realtime Sync State
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [justSynced, setJustSynced] = useState(false)
+
   // Ambil daftar percakapan 100% dari IndexedDB lokal secara reaktif beserta unread count live
   const conversations = useLiveQuery(
     async () => {
@@ -50,10 +54,25 @@ export default function ChatLayout({
   useEffect(() => {
     if (currentUser?.id) {
       syncEngine.initialize(currentUser.id)
+
       syncEngine.setNotificationCallback((sender, text) => {
         setToast({ sender, text })
         setTimeout(() => setToast(null), 5000)
       })
+
+      // Dengarkan perubahan status sinkronisasi realtime
+      const unsubscribeSync = syncEngine.onSyncStateChange((syncing) => {
+        setIsSyncing(syncing)
+        if (!syncing) {
+          setJustSynced(true)
+          const timer = setTimeout(() => setJustSynced(false), 2500)
+          return () => clearTimeout(timer)
+        }
+      })
+
+      return () => {
+        unsubscribeSync()
+      }
     }
   }, [currentUser?.id])
 
@@ -72,8 +91,59 @@ export default function ChatLayout({
     setMobileShowChat(true)
   }
 
+  function handleDeleteConversation(id: string) {
+    if (selectedConversationId === id) {
+      setSelectedConversationId(null)
+      setMobileShowChat(false)
+    }
+  }
+
   return (
     <div className="flex h-[100dvh] w-screen overflow-hidden bg-slate-50 dark:bg-slate-950 relative">
+      {/* Realtime Sync Banner Indicator */}
+      {(isSyncing || justSynced) && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50 pointer-events-none transition-all duration-300">
+          <div
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium shadow-lg backdrop-blur-md transition-all ${
+              isSyncing
+                ? 'bg-indigo-600/90 text-white shadow-indigo-500/20 animate-pulse'
+                : 'bg-emerald-600/90 text-white shadow-emerald-500/20'
+            }`}
+          >
+            {isSyncing ? (
+              <>
+                <svg
+                  className="animate-spin h-3.5 w-3.5 text-white"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+                <span>Menyinkronkan obrolan & perangkat...</span>
+              </>
+            ) : (
+              <>
+                <span>✓</span>
+                <span>Obrolan tersinkronisasi</span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Aesthetic Toast Notification Banner */}
       {toast && (
         <div
@@ -113,6 +183,7 @@ export default function ChatLayout({
             onSelect={handleSelectConversation}
             onNewChat={() => setShowNewChat(true)}
             onNewGroup={() => setShowNewGroup(true)}
+            onDeleteConversation={handleDeleteConversation}
           />
         </div>
 

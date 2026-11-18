@@ -374,3 +374,125 @@ export async function clearLocalConversationMessages(conversationId: string): Pr
     })
   })
 }
+
+/**
+ * Hapus Seluruh Obrolan (Delete Conversation)
+ * Menghapus permanen room obrolan beserta seluruh riwayat pesan, tombstones, dan media dari IndexedDB lokal.
+ */
+export async function deleteLocalConversation(conversationId: string): Promise<void> {
+  await localDb.transaction(
+    'rw',
+    [localDb.conversations, localDb.messages, localDb.media_files, localDb.tombstones],
+    async () => {
+      // 1. Hapus media terkait
+      const msgs = await localDb.messages.where('conversation_id').equals(conversationId).toArray()
+      for (const msg of msgs) {
+        await localDb.media_files.delete(msg.id)
+      }
+      // 2. Hapus pesan & tombstones
+      await localDb.messages.where('conversation_id').equals(conversationId).delete()
+      await localDb.tombstones.where('conversation_id').equals(conversationId).delete()
+      // 3. Hapus percakapan
+      await localDb.conversations.delete(conversationId)
+    }
+  )
+}
+
+/**
+ * Sematkan / Batal Sematkan Obrolan (Pin / Unpin Conversation)
+ */
+export async function togglePinConversation(conversationId: string): Promise<boolean> {
+  const conv = await localDb.conversations.get(conversationId)
+  if (!conv) return false
+  const updatedPin = !conv.is_pinned
+  await localDb.conversations.update(conversationId, { is_pinned: updatedPin })
+  return updatedPin
+}
+
+/**
+ * Arsipkan / Batal Arsipkan Obrolan (Archive / Unarchive Conversation)
+ */
+export async function toggleArchiveConversation(conversationId: string): Promise<boolean> {
+  const conv = await localDb.conversations.get(conversationId)
+  if (!conv) return false
+  const updatedArchived = !conv.is_archived
+  await localDb.conversations.update(conversationId, { is_archived: updatedArchived })
+  return updatedArchived
+}
+
+/**
+ * Otomatis menggabungkan & membersihkan duplikasi obrolan DM dengan kontak yang sama
+ */
+export async function deduplicateLocalConversations(currentUserId: string): Promise<void> {
+  try {
+    const allConvs = await localDb.conversations.toArray()
+    const dmConvs = allConvs.filter((c) => c.type === 'dm')
+
+    const peerMap = new Map<string, typeof dmConvs>()
+    for (const c of dmConvs) {
+      const otherMember = c.members?.find((m) => m.user_id !== currentUserId)
+      if (otherMember?.user_id) {
+        const list = peerMap.get(otherMember.user_id) || []
+        list.push(c)
+        peerMap.set(otherMember.user_id, list)
+      }
+    }
+
+    for (const [peerId, convs] of peerMap.entries()) {
+      if (convs.length <= 1) continue
+
+      const canonicalId = `dm_${[currentUserId, peerId].sort().join('_')}`
+      // Cari apakah canonical conversation sudah ada di daftar
+      let canonicalConv = convs.find((c) => c.id === canonicalId)
+      const otherDuplicates = convs.filter((c) => c.id !== canonicalId)
+
+      // Jika belum ada canonical, jadikan conv pertama sebagai canonical
+      if (!canonicalConv && convs.length > 0) {
+        canonicalConv = { ...convs[0], id: canonicalId }
+        await localDb.conversations.put(canonicalConv)
+      }
+
+      for (const dup of otherDuplicates) {
+        // Pindahkan semua pesan dari ID duplikat ke canonicalId
+        const msgs = await localDb.messages.where('conversation_id').equals(dup.id).toArray()
+        for (const m of msgs) {
+          await localDb.messages.update(m.id, { conversation_id: canonicalId })
+        }
+
+        // Pindahkan tombstones
+        const tombstones = await localDb.tombstones.where('conversation_id').equals(dup.id).toArray()
+        for (const t of tombstones) {
+          await localDb.tombstones.delete(t.message_id)
+          await localDb.tombstones.put({ ...t, conversation_id: canonicalId })
+        }
+
+        // Hapus obrolan duplikat dari tabel conversations
+        await localDb.conversations.delete(dup.id)
+      }
+
+      // Re-evaluasi last message untuk canonicalConv
+      const latestMsg = await localDb.messages
+        .where('conversation_id')
+        .equals(canonicalId)
+        .sortBy('local_ts')
+      if (latestMsg.length > 0) {
+        const last = latestMsg[latestMsg.length - 1]
+        await localDb.conversations.update(canonicalId, {
+          last_message: {
+            id: last.id,
+            content: last.content,
+            type: last.type,
+            sender_id: last.sender_id,
+            server_ts: last.server_ts,
+            created_at: last.created_at,
+            status: last.status,
+            is_deleted: last.is_deleted,
+          },
+          updated_at: last.server_ts || last.local_ts,
+        })
+      }
+    }
+  } catch (err) {
+    console.warn('[DB] deduplicateLocalConversations error:', err)
+  }
+}

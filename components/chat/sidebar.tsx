@@ -2,9 +2,15 @@
 
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { localDb } from '@/lib/db/schema'
+import {
+  localDb,
+  deleteLocalConversation,
+  togglePinConversation,
+  toggleArchiveConversation,
+  deduplicateLocalConversations,
+} from '@/lib/db/schema'
 import type { Profile } from '@/lib/types'
 import type { LocalConversation } from '@/lib/db/types'
 import { requestNotificationPermission } from '@/lib/utils/notifications'
@@ -35,27 +41,44 @@ export default function Sidebar({
   onSelect,
   onNewChat,
   onNewGroup,
+  onDeleteConversation,
 }: {
   currentUser: Profile
   selectedId: string | null
   onSelect: (id: string) => void
   onNewChat: () => void
   onNewGroup: () => void
+  onDeleteConversation?: (id: string) => void
 }) {
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeTab, setActiveTab] = useState<'all' | 'dm' | 'group'>('all')
+  const [activeTab, setActiveTab] = useState<'all' | 'dm' | 'group' | 'archived'>('all')
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default')
   const [showBackupModal, setShowBackupModal] = useState(false)
   const [deviceInfo, setDeviceInfo] = useState({ deviceName: 'Browser', deviceId: '' })
+
+  // State untuk Action Sheet & Dialog Hapus Obrolan
+  const [actionMenuConv, setActionMenuConv] = useState<LocalConversation | null>(null)
+  const [confirmDeleteConv, setConfirmDeleteConv] = useState<LocalConversation | null>(null)
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null)
+  const isLongPressTriggeredRef = useRef(false)
+
   const supabase = createClient()
   const router = useRouter()
 
+  // Otomatis deduplikasi jika ada DM duplikat dengan kontak yang sama
+  useEffect(() => {
+    if (currentUser?.id) {
+      deduplicateLocalConversations(currentUser.id)
+    }
+  }, [currentUser?.id])
+
   // Ambil daftar percakapan 100% dari IndexedDB lokal secara reaktif via Dexie
-  // Hitung jumlah pesan belum terbaca (unread) secara live dari tabel messages
+  // Hitung unread count live dari tabel messages
   const localConversations = useLiveQuery(
     async () => {
-      const convs = await localDb.conversations.orderBy('updated_at').reverse().toArray()
-      return Promise.all(
+      const convs = await localDb.conversations.toArray()
+      const enhanced = await Promise.all(
         convs.map(async (c) => {
           const unreadMsgsCount = await localDb.messages
             .where('conversation_id')
@@ -68,6 +91,15 @@ export default function Sidebar({
           }
         })
       )
+
+      // Sort: Yang di-pin selalu paling atas, lalu urutkan berdasarkan updated_at DESC
+      return enhanced.sort((a, b) => {
+        if (a.is_pinned && !b.is_pinned) return -1
+        if (!a.is_pinned && b.is_pinned) return 1
+        const timeA = typeof a.updated_at === 'number' ? a.updated_at : new Date(a.updated_at || 0).getTime()
+        const timeB = typeof b.updated_at === 'number' ? b.updated_at : new Date(b.updated_at || 0).getTime()
+        return timeB - timeA
+      })
     },
     [currentUser.id]
   ) || []
@@ -80,7 +112,7 @@ export default function Sidebar({
       const info = getClientDeviceInfo(currentUser.id)
       setDeviceInfo({ deviceName: info.deviceName, deviceId: info.deviceId })
     }
-  }, [])
+  }, [currentUser.id])
 
   async function handleEnableNotification() {
     const res = await requestNotificationPermission()
@@ -128,17 +160,84 @@ export default function Sidebar({
     return date.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit' })
   }
 
+  // Touch & Long Press Handler
+  function handleTouchStart(conv: LocalConversation, e: React.TouchEvent) {
+    const touch = e.touches[0]
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY }
+    isLongPressTriggeredRef.current = false
+
+    longPressTimerRef.current = setTimeout(() => {
+      isLongPressTriggeredRef.current = true
+      // Trigger vibrasi haptic di HP jika didukung
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate?.(50)
+      }
+      setActionMenuConv(conv)
+    }, 550)
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    if (!touchStartPosRef.current || !longPressTimerRef.current) return
+    const touch = e.touches[0]
+    const deltaX = Math.abs(touch.clientX - touchStartPosRef.current.x)
+    const deltaY = Math.abs(touch.clientY - touchStartPosRef.current.y)
+    // Jika bergeser lebih dari 10px (sedang scroll), batalkan hold
+    if (deltaX > 10 || deltaY > 10) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }
+
+  function handleTouchEnd() {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }
+
+  async function handleTogglePin(conv: LocalConversation) {
+    await togglePinConversation(conv.id)
+    setActionMenuConv(null)
+  }
+
+  async function handleToggleArchive(conv: LocalConversation) {
+    await toggleArchiveConversation(conv.id)
+    setActionMenuConv(null)
+  }
+
+  async function handleExecuteDelete() {
+    if (!confirmDeleteConv) return
+    const idToDelete = confirmDeleteConv.id
+    setConfirmDeleteConv(null)
+    setActionMenuConv(null)
+
+    await deleteLocalConversation(idToDelete)
+    if (onDeleteConversation) {
+      onDeleteConversation(idToDelete)
+    }
+  }
+
+  const archivedCount = localConversations.filter((c) => c.is_archived).length
+
   const filteredConversations = localConversations.filter((c) => {
     const name = getConversationName(c)
     const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase())
     if (!matchesSearch) return false
+
+    if (activeTab === 'archived') {
+      return Boolean(c.is_archived)
+    }
+
+    // Tab 'all', 'dm', 'group' menyembunyikan chat yang diarsipkan
+    if (c.is_archived) return false
+
     if (activeTab === 'dm') return c.type === 'dm'
     if (activeTab === 'group') return c.type === 'group'
     return true
   })
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800">
+    <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800 select-none">
       {/* Top Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800/80">
         <div className="flex items-center gap-3">
@@ -251,10 +350,10 @@ export default function Sidebar({
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex items-center gap-1.5 px-3.5 pb-2 text-xs">
+      <div className="flex items-center gap-1.5 px-3.5 pb-2 text-xs overflow-x-auto no-scrollbar">
         <button
           onClick={() => setActiveTab('all')}
-          className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+          className={`px-3 py-1 rounded-lg font-medium transition-colors shrink-0 ${
             activeTab === 'all'
               ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
               : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -264,7 +363,7 @@ export default function Sidebar({
         </button>
         <button
           onClick={() => setActiveTab('dm')}
-          className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+          className={`px-3 py-1 rounded-lg font-medium transition-colors shrink-0 ${
             activeTab === 'dm'
               ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
               : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -274,7 +373,7 @@ export default function Sidebar({
         </button>
         <button
           onClick={() => setActiveTab('group')}
-          className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+          className={`px-3 py-1 rounded-lg font-medium transition-colors shrink-0 ${
             activeTab === 'group'
               ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
               : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -282,16 +381,38 @@ export default function Sidebar({
         >
           Grup
         </button>
+
+        {archivedCount > 0 && (
+          <button
+            onClick={() => setActiveTab('archived')}
+            className={`px-2.5 py-1 rounded-lg font-medium transition-colors shrink-0 flex items-center gap-1 ${
+              activeTab === 'archived'
+                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
+                : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <span>📁 Arsip</span>
+            <span className="text-[10px] px-1 py-0.2 bg-slate-200 dark:bg-slate-700 rounded-full">
+              {archivedCount}
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Conversations List (100% dari IndexedDB Lokal) */}
       <div className="flex-1 overflow-y-auto px-2 space-y-0.5">
         {filteredConversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-slate-400 text-center px-4">
-            <span className="text-3xl mb-2 opacity-50">💬</span>
-            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Belum ada percakapan lokal</p>
+            <span className="text-3xl mb-2 opacity-50">
+              {activeTab === 'archived' ? '📁' : '💬'}
+            </span>
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              {activeTab === 'archived' ? 'Tidak ada obrolan terarsip' : 'Belum ada obrolan lokal'}
+            </p>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Mulai chat baru dengan teman atau impor cadangan dari perangkat lain.
+              {activeTab === 'archived'
+                ? 'Tahan lama obrolan untuk mengarsipkan obrolan penting.'
+                : 'Mulai chat baru dengan teman atau impor cadangan dari perangkat lain.'}
             </p>
           </div>
         ) : (
@@ -300,70 +421,113 @@ export default function Sidebar({
             const unread = conv.unread_count || 0
             const name = getConversationName(conv)
             const gradient = getGradient(name)
+            const isPinned = Boolean(conv.is_pinned)
 
             return (
-              <button
+              <div
                 key={conv.id}
-                onClick={() => onSelect(conv.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl transition-all text-left ${
-                  isSelected
-                    ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-950 dark:text-indigo-100'
-                    : 'hover:bg-slate-100/70 dark:hover:bg-slate-800/60 text-slate-900 dark:text-white'
-                }`}
+                className="relative group"
+                onTouchStart={(e) => handleTouchStart(conv, e)}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  setActionMenuConv(conv)
+                }}
               >
-                {/* Avatar */}
-                <div className="relative shrink-0">
-                  <div className={`h-11 w-11 rounded-2xl bg-gradient-to-tr ${gradient} flex items-center justify-center text-white text-sm font-semibold shadow-xs`}>
-                    {getAvatarInitial(conv)}
-                  </div>
-                  {isOnline(conv) && (
-                    <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
-                  )}
-                </div>
-
-                {/* Details */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className={`text-sm truncate ${unread > 0 ? 'font-bold' : 'font-medium'}`}>
-                      {name}
-                    </span>
-                    {conv.last_message && (
-                      <span className={`text-[10px] shrink-0 ml-2 ${unread > 0 ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-slate-400'}`}>
-                        {formatTime(conv.last_message.server_ts || conv.last_message.created_at)}
-                      </span>
+                <button
+                  onClick={() => {
+                    if (isLongPressTriggeredRef.current) {
+                      isLongPressTriggeredRef.current = false
+                      return
+                    }
+                    onSelect(conv.id)
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl transition-all text-left ${
+                    isSelected
+                      ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-950 dark:text-indigo-100'
+                      : 'hover:bg-slate-100/70 dark:hover:bg-slate-800/60 text-slate-900 dark:text-white'
+                  }`}
+                >
+                  {/* Avatar */}
+                  <div className="relative shrink-0">
+                    <div className={`h-11 w-11 rounded-2xl bg-gradient-to-tr ${gradient} flex items-center justify-center text-white text-sm font-semibold shadow-xs`}>
+                      {getAvatarInitial(conv)}
+                    </div>
+                    {isOnline(conv) && (
+                      <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
                     )}
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                    <span className={`truncate flex-1 pr-2 text-[11px] ${unread > 0 ? 'font-semibold text-slate-900 dark:text-white' : ''}`}>
-                      {conv.last_message ? (
-                        conv.last_message.is_deleted ? (
-                          <span className="italic text-slate-400">🚫 Pesan terhapus</span>
-                        ) : conv.last_message.type === 'image' ? (
-                          <span className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400">
-                            📷 Foto
+                  {/* Details */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <div className="flex items-center gap-1.5 min-w-0 pr-1">
+                        {isPinned && (
+                          <span className="text-xs text-indigo-500 shrink-0" title="Disematkan">
+                            📌
                           </span>
-                        ) : conv.last_message.type === 'sticker' ? (
-                          <span className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400">
-                            🎨 Stiker
-                          </span>
-                        ) : (
-                          conv.last_message.content
-                        )
-                      ) : (
-                        <span className="italic text-slate-400 text-[11px]">Belum ada pesan</span>
+                        )}
+                        <span className={`text-sm truncate ${unread > 0 ? 'font-bold' : 'font-medium'}`}>
+                          {name}
+                        </span>
+                      </div>
+                      {conv.last_message && (
+                        <span className={`text-[10px] shrink-0 ml-1 ${unread > 0 ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-slate-400'}`}>
+                          {formatTime(conv.last_message.server_ts || conv.last_message.created_at)}
+                        </span>
                       )}
-                    </span>
+                    </div>
 
-                    {/* Badge */}
-                    {unread > 0 && (
-                      <span className="chat-unread-badge shrink-0">
-                        {unread}
+                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                      <span className={`truncate flex-1 pr-2 text-[11px] ${unread > 0 ? 'font-semibold text-slate-900 dark:text-white' : ''}`}>
+                        {conv.last_message ? (
+                          conv.last_message.is_deleted ? (
+                            <span className="italic text-slate-400">🚫 Pesan terhapus</span>
+                          ) : conv.last_message.type === 'image' ? (
+                            <span className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400">
+                              📷 Foto
+                            </span>
+                          ) : conv.last_message.type === 'sticker' ? (
+                            <span className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400">
+                              🎨 Stiker
+                            </span>
+                          ) : (
+                            conv.last_message.content
+                          )
+                        ) : (
+                          <span className="italic text-slate-400 text-[11px]">Belum ada pesan</span>
+                        )}
                       </span>
-                    )}
+
+                      {/* Badge / Actions */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {unread > 0 && (
+                          <span className="chat-unread-badge shrink-0">
+                            {unread}
+                          </span>
+                        )}
+                        {/* 3-dots action trigger (Desktop hover & quick click) */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setActionMenuConv(conv)
+                          }}
+                          title="Pilihan obrolan"
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-opacity"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="1"/>
+                            <circle cx="19" cy="12" r="1"/>
+                            <circle cx="5" cy="12" r="1"/>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
+              </div>
             )
           })
         )}
@@ -379,6 +543,115 @@ export default function Sidebar({
           Cadangkan
         </button>
       </div>
+
+      {/* WhatsApp-Style Action Menu Modal / Bottom Sheet */}
+      {actionMenuConv && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150"
+          onClick={() => setActionMenuConv(null)}
+        >
+          <div
+            className="w-full sm:max-w-xs bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl p-4 shadow-xl border border-slate-200 dark:border-slate-800 space-y-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="pb-2 border-b border-slate-100 dark:border-slate-800">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                Opsi Obrolan
+              </p>
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                {getConversationName(actionMenuConv)}
+              </h4>
+            </div>
+
+            <div className="space-y-1">
+              {/* Pin / Unpin */}
+              <button
+                onClick={() => handleTogglePin(actionMenuConv)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left"
+              >
+                <span className="text-base">{actionMenuConv.is_pinned ? '📌' : '📍'}</span>
+                <span>{actionMenuConv.is_pinned ? 'Lepas Sematan (Unpin)' : 'Sematkan Obrolan (Pin)'}</span>
+              </button>
+
+              {/* Archive / Unarchive */}
+              <button
+                onClick={() => handleToggleArchive(actionMenuConv)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left"
+              >
+                <span className="text-base">📁</span>
+                <span>{actionMenuConv.is_archived ? 'Buka Dari Arsip' : 'Arsipkan Obrolan'}</span>
+              </button>
+
+              {/* Hapus Obrolan */}
+              <button
+                onClick={() => {
+                  setConfirmDeleteConv(actionMenuConv)
+                  setActionMenuConv(null)
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors text-left"
+              >
+                <span className="text-base">🗑️</span>
+                <span>Hapus Obrolan Ini</span>
+              </button>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                onClick={() => setActionMenuConv(null)}
+                className="w-full py-2 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal: Hapus Obrolan */}
+      {confirmDeleteConv && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setConfirmDeleteConv(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400">
+              <div className="h-10 w-10 rounded-xl bg-rose-100 dark:bg-rose-950/50 flex items-center justify-center text-lg shrink-0">
+                🗑️
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Hapus Obrolan?
+                </h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Tindakan ini tidak dapat dibatalkan.
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Obrolan dengan <strong className="text-slate-900 dark:text-white">{getConversationName(confirmDeleteConv)}</strong> beserta semua riwayat pesan dan media akan dihapus permanen dari perangkat ini.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setConfirmDeleteConv(null)}
+                className="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleExecuteDelete}
+                className="px-4 py-1.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white transition-colors shadow-sm"
+              >
+                Hapus Obrolan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showBackupModal && <BackupModal onClose={() => setShowBackupModal(false)} />}
     </div>
